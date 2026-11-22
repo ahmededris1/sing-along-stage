@@ -150,7 +150,7 @@ function openEditor(s) {
   $('#edTitle').textContent = s ? 'Edit song' : 'Add song';
   $('#fTitle').value = s?.title || '';
   $('#fArtist').value = s?.artist || '';
-  const join = k => s ? s.sections.map(x => x.lines.map(l => l[k]).join('\n')).join('\n\n') : '';
+  const join = k => s && s.sections.some(x => x.lines.some(l => l[k])) ? s.sections.map(x => x.lines.map(l => l[k] || '-').join('\n')).join('\n\n') : '';
   $('#fRaw').value = s ? s.sections.map(x => `[${x.label}]\n` + x.lines.map(l => l.main).join('\n')).join('\n\n') : '';
   $('#fSub').value = join('sub');
   $('#fTr').value = join('tr');
@@ -170,13 +170,13 @@ $('#closeEd').onclick = () => $('#sheet').classList.remove('on');
 const LABEL = /^\s*(?:\[(.+?)\]|\(((?:verse|chorus|pre-?chorus|bridge|intro|outro|tag|refrain|ending)[^)]*)\)|((?:verse|chorus|pre-?chorus|bridge|intro|outro|tag|refrain|ending|كورال|قرار|مقطع|عدد|ردة)(?:\s*\d+)?)\s*:?)\s*$/i;
 const JUNK = /^\s*(\d+\s*contributors?.*|.*\blyrics\b\s*$|embed|you might also like|translations?|see .* live|get tickets.*|written by.*|copyright.*|©.*|ccli.*|\(?repeat( chorus)?\)?|\(?x\d\)?)\s*$/i;
 const CHORDS = /^\s*([A-G][#b]?(m|maj|min|sus|dim|aug|add)?\d*(\/[A-G][#b]?)?\s*)+$/;
-const REPEAT = /\s*[\(\[]?\s*(?:x|×)\s*(\d)\s*[\)\]]?\s*$/i;
+const REPEAT = /\s*(?:[\(\[]\s*(?:x|×)\s*(\d)\s*[\)\]]|\s(?:x|×)(\d))\s*$/i;
 
 function expand(line) {
   const m = line.match(REPEAT);
   if (!m) return [line];
   const text = line.replace(REPEAT, '').trim();
-  return Array(+m[1]).fill(text);
+  return Array(+(m[1] || m[2])).fill(text);
 }
 function blocksFrom(raw) {
   const blocks = []; let cur = null;
@@ -192,7 +192,7 @@ function blocksFrom(raw) {
   return blocks.filter(b => b.lines.length);
 }
 function plainLines(text) {
-  return text.split(/\r?\n/).map(l => l.trim()).filter(l => l && !LABEL.test(l) && !JUNK.test(l) && !CHORDS.test(l)).flatMap(expand);
+  return text.split(/\r?\n/).map(l => l.trim()).filter(l => l && !LABEL.test(l) && !JUNK.test(l) && !CHORDS.test(l)).flatMap(expand).map(l => l === '-' ? '' : l);
 }
 function nameBlocks(blocks) {
   if (blocks.some(b => b.label)) { let n = 0; blocks.forEach(b => { if (!b.label) b.label = 'Part ' + (++n); }); return blocks; }
@@ -259,6 +259,7 @@ function fillFromBoxes() {
   if (trs.length && trs.length !== k) msgs.push(`English translation has ${trs.length} lines but the lyrics have ${k}.`);
   $('#status').innerHTML = msgs.length ? `<span class="err">${esc(msgs.join(' '))}</span>` : (subs.length || trs.length ? 'Translations matched to the lyrics.' : '');
 }
+$('#fRaw').addEventListener('input', () => { if (draft?.length) $('#status').innerHTML = '<span class="err">You changed the lyrics. Press Find parts and match lines to update the parts below.</span>'; });
 ['#fSub', '#fTr'].forEach(id => $(id).addEventListener('input', () => { clearTimeout(fillT); fillT = setTimeout(fillFromBoxes, 300); }));
 
 function renderDraft() {
@@ -352,7 +353,11 @@ function tChord(c, st) {
   return c.replace(/^(\(?)([A-G][#b]?)/, (_, p, n) => p + tNote(n, st, flat)).replace(/\/([A-G][#b]?)/, (_, n) => '/' + tNote(n, st, flat));
 }
 // a chord line is mostly chords; notes like "(B7 2nd time)" are allowed
-const isChordLine = line => { const t = line.trim().split(/\s+/).filter(x => x && !FILLER.test(x)); const n = t.filter(x => CHORD.test(x)).length; return n > 0 && n / t.length >= 0.5 && !/[\u0600-\u06FF]/.test(line); };
+const isChordLine = line => {
+  if (/[\u0600-\u06FF]/.test(line)) return false;
+  const outside = line.replace(/\([^)]*\)?/g, ' ').trim().split(/\s+/).filter(x => x && !FILLER.test(x));
+  return outside.length > 0 && outside.every(x => CHORD.test(x));
+};
 const chordSpan = c => `<span class="ch">${esc(c)}</span>`;
 function chordLineHtml(line) {
   // transpose each chord, keep the spacing so chords stay over the right words
@@ -403,8 +408,10 @@ function openChords(s) {
   $('#chordView').classList.add('on');
   $('#chordView').scrollTop = 0;
 }
-$('#tUp').onclick = () => { shift = shift + 1 > 11 ? 0 : shift + 1; renderChart(); };
-$('#tDown').onclick = () => { shift = shift - 1 < -11 ? 0 : shift - 1; renderChart(); };
+// keep the shift between -5 and +6 (12 steps is the same key)
+const move = d => { shift = (((shift + d) % 12) + 12) % 12; if (shift > 6) shift -= 12; renderChart(); };
+$('#tUp').onclick = () => move(1);
+$('#tDown').onclick = () => move(-1);
 const setFs = d => { cfs = Math.max(12, Math.min(32, cfs + d)); try { localStorage.setItem('singalong-cfs', cfs); } catch {} renderChart(); };
 $('#fsUp').onclick = () => setFs(2);
 $('#fsDown').onclick = () => setFs(-2);
@@ -427,6 +434,7 @@ function fit(box) {
   box.style.fontSize = size + 'px';
   while (size > 8 && (inner.scrollHeight > availH || inner.scrollWidth > availW)) { size *= .93; box.style.fontSize = size + 'px'; }
 }
+document.fonts?.ready.then(() => { if ($('#stage').classList.contains('on')) fit($('#words')); });
 window.addEventListener('resize', () => {
   if ($('#stage').classList.contains('on')) fit($('#words'));
   if ($('#sheet').classList.contains('on')) fit($('#miniWords'));
@@ -466,7 +474,8 @@ document.addEventListener('fullscreenchange', fsLabel);
 document.addEventListener('webkitfullscreenchange', fsLabel);
 
 document.addEventListener('keydown', e => {
-  if (e.key === 'Escape') {
+  if (e.key === 'Escape' && !$('#stage').classList.contains('on')) {
+    if ($('#chordView').classList.contains('on')) return $('#chordView').classList.remove('on');
     if ($('#loginSheet').classList.contains('on')) return $('#loginSheet').classList.remove('on');
     if ($('#sheet').classList.contains('on')) return $('#sheet').classList.remove('on');
     if ($('#chordView').classList.contains('on')) return $('#chordView').classList.remove('on');

@@ -81,6 +81,7 @@ label{display:block;font-size:14px;color:var(--mute);margin-bottom:4px}
 .tools button,.ln button{min-height:36px;padding:0 10px;font-size:13px}
 .ln{grid-template-columns:repeat(var(--c),minmax(0,1fr)) auto}
 .ln .lt{display:flex;gap:4px;width:96px;justify-content:flex-end}
+@media(max-width:600px){.ln{grid-template-columns:1fr;padding-bottom:8px;border-bottom:1px solid var(--line)}.ln .lt{width:auto}}
 .top{position:absolute;z-index:3;top:0;inset-inline:0;display:flex;justify-content:space-between;align-items:center;padding:18px 22px;font-size:15px;transition:opacity .4s}
 .top b{font-weight:500;opacity:.85}
 .ctl{position:absolute;z-index:3;bottom:0;inset-inline:0;display:flex;justify-content:center;align-items:center;gap:10px;padding:18px;transition:opacity .4s;flex-wrap:wrap}
@@ -168,7 +169,7 @@ details.chordsBox textarea{font-family:ui-monospace,Menlo,Consolas,monospace;fon
       <div class="pv">
         <div class="mini" id="mini"><div class="words" id="miniWords"></div></div>
         <div class="pvbar"><button id="pvPrev" aria-label="Previous part">←</button><b id="pvLabel"></b><button id="pvNext" aria-label="Next part">→</button></div>
-        <p class="note">This is how the selected part will look on screen. Click a part on the left to preview it.</p>
+        <p class="note">This is how the selected part will look on screen. Click any part to preview it.</p>
       </div>
     </div>
     <div class="bar" style="margin-top:16px;justify-content:flex-end"><button id="previewBtn">Preview</button><button class="pri" id="saveBtn">Save to library</button></div>
@@ -198,6 +199,6 @@ details.chordsBox textarea{font-family:ui-monospace,Menlo,Consolas,monospace;fon
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <script src="config.js?v=3"></script>
-<script src="app.js?v=4"></script>
+<script src="app.js?v=5"></script>
 </body>
 </html>
