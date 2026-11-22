@@ -97,6 +97,10 @@ Every time you push, the site updates.
 
 Press play on a song. Use the arrow keys, the space bar, swipe, or the part buttons at the bottom. Press **Full screen** or the `F` key. Esc closes it.
 
+**Chords for the music team**
+
+When adding or editing a song, open **Chords for the music team (optional)** and paste the song with chords. Chords above the lyrics work, and so do chords in brackets like `[G]Amazing [C]grace`. Songs with chords get a **Chords** button in the library. It shows the original lyrics with chords, with **− / +** to transpose and **A− / A+** to change the text size.
+
 **Backup**
 
 **Export** downloads the whole library as a JSON file. Editors can **Import** it again, and songs with the same title are skipped.

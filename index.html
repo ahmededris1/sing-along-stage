@@ -91,6 +91,22 @@ label{display:block;font-size:14px;color:var(--mute);margin-bottom:4px}
 #stage.idle .ctl,#stage.idle .top{opacity:0}
 #stage.idle{cursor:none}
 @media(prefers-reduced-motion:reduce){.words{transition:none}}
+/* chords */
+details.chordsBox{border:1px solid var(--line);border-radius:14px;padding:10px 14px;margin:4px 0 14px;background:var(--card)}
+details.chordsBox summary{cursor:pointer;font-weight:500;min-height:32px;display:flex;align-items:center}
+details.chordsBox textarea{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:15px;white-space:pre;overflow-x:auto;margin-top:8px}
+#chordView{position:fixed;inset:0;z-index:30;background:var(--bg);display:none;overflow:auto}
+#chordView.on{display:block}
+.cbar{position:sticky;top:0;z-index:2;background:var(--bg);border-bottom:1px solid var(--line);display:flex;gap:10px;flex-wrap:wrap;align-items:center;justify-content:space-between;padding:12px max(4vw,14px)}
+.cbar h2{margin:0;font-size:22px}
+.cbar .bar button{min-width:44px;padding:0 12px}
+.ckey{font-size:14px;color:var(--mute);min-width:96px;text-align:center}
+.chart{font-family:ui-monospace,Menlo,Consolas,monospace;padding:20px max(4vw,14px) 60px;font-size:var(--cfs,17px);line-height:1.35}
+.chart .blk{break-inside:avoid;margin-bottom:1.2em}
+.chart .cl{display:block;white-space:pre;overflow-x:auto;min-height:1em}
+.chart .ch{color:var(--acc);font-weight:700}
+.chart h3{font-family:"Readex Pro",system-ui,sans-serif;font-size:.8em;text-transform:none;color:var(--mute);margin:0 0 .3em;font-weight:600}
+@media(min-width:1100px){.chart{columns:2;column-gap:56px}}
 </style>
 </head>
 <body>
@@ -140,6 +156,11 @@ label{display:block;font-size:14px;color:var(--mute);margin-bottom:4px}
       <div><label for="fSub" id="subLbl">Arabic translation</label><textarea id="fSub" dir="auto" placeholder="One line for each lyric line"></textarea></div>
       <div id="trCol" hidden><label for="fTr">English translation</label><textarea id="fTr" dir="auto" placeholder="One line for each lyric line"></textarea></div>
     </div>
+    <details class="chordsBox" id="chordsBox">
+      <summary>Chords for the music team (optional)</summary>
+      <p class="note" style="margin:6px 0 0">Paste the song with chords. Chords above the lyrics work, and so do chords inside brackets like <code>[G]Amazing [C]grace</code>. Part names like [Verse 1] or Chorus: become headings.</p>
+      <textarea id="fChords" spellcheck="false" placeholder="[Verse 1]&#10;G          C        G&#10;You hold the stars above&#10;Em        C        D&#10;You hold my heart in love"></textarea>
+    </details>
     <div class="bar"><button class="pri" id="buildBtn">Find parts and match lines</button><span class="note">Pressing it again rebuilds the parts from the text and replaces changes made below.</span></div>
     <div class="status" id="status" aria-live="polite"></div>
     <div class="edgrid" id="edgrid" hidden>
@@ -152,6 +173,19 @@ label{display:block;font-size:14px;color:var(--mute);margin-bottom:4px}
     </div>
     <div class="bar" style="margin-top:16px;justify-content:flex-end"><button id="previewBtn">Preview</button><button class="pri" id="saveBtn">Save to library</button></div>
   </div>
+</div>
+
+<!-- Chords view -->
+<div id="chordView" role="dialog" aria-modal="true" aria-labelledby="cTitle">
+  <div class="cbar">
+    <h2 id="cTitle" dir="auto"></h2>
+    <div class="bar">
+      <button id="tDown" aria-label="Transpose down">−</button><span class="ckey" id="cKey">Original key</span><button id="tUp" aria-label="Transpose up">+</button>
+      <button id="fsDown" aria-label="Smaller text">A−</button><button id="fsUp" aria-label="Bigger text">A+</button>
+      <button id="cClose">Close</button>
+    </div>
+  </div>
+  <div class="chart" id="chart"></div>
 </div>
 
 <!-- Presenter -->

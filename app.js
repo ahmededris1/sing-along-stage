@@ -23,12 +23,12 @@ let songs = [], canEdit = false, userEmail = '', editing = null, draft = null, l
 const LS = 'singalong-songs';
 const localLoad = () => { try { return JSON.parse(localStorage.getItem(LS) || '[]'); } catch { return []; } };
 const localSave = () => { try { localStorage.setItem(LS, JSON.stringify(songs)); } catch {} };
-const pick = s => ({ id: s.id, title: s.title, artist: s.artist || '', lang: s.lang, sections: s.sections });
+const pick = s => ({ id: s.id, title: s.title, artist: s.artist || '', lang: s.lang, sections: s.sections, chords: s.chords || '' });
 
 async function loadSongs() {
   if (!sb) { songs = localLoad(); render(); return; }
   $('#syncNote').textContent = 'Loading library…';
-  const { data, error } = await sb.from('songs').select('id,title,artist,lang,sections').order('title');
+  const { data, error } = await sb.from('songs').select('id,title,artist,lang,sections,chords').order('title');
   if (error) { $('#syncNote').textContent = 'The library could not load. Check your connection and the Supabase settings.'; return; }
   $('#syncNote').textContent = '';
   songs = data; render();
@@ -88,6 +88,7 @@ function render() {
   $('#grid').innerHTML = list.length ? list.map(s => `<article class="song">
     <button class="thumb" style="background:${thumbBg(s)}" data-play="${esc(s.id)}" aria-label="Play ${esc(s.title)}"><b dir="auto">${esc(s.title)}</b><span class="play"></span></button>
     <div class="meta"><span dir="auto">${esc(s.artist || 'Unknown artist')} · ${s.sections?.length || 0} parts</span><span class="tag">${s.lang === 'ar' ? 'Arabic' : 'English'}</span>
+    ${s.chords?.trim() ? `<button data-chords="${esc(s.id)}" title="Lyrics with chords for the music team">Chords</button>` : ''}
     ${canEdit ? `<span class="bar"><button data-edit="${esc(s.id)}">Edit</button><button data-del="${esc(s.id)}">Delete</button></span>` : ''}</div></article>`).join('')
     : `<div class="empty">${songs.length ? 'No songs match your search.' : canEdit ? 'Your library is empty. Add your first song.' : 'No songs yet.'}</div>`;
 }
@@ -96,6 +97,7 @@ $('#grid').addEventListener('click', async e => {
   const b = e.target.closest('button'); if (!b) return;
   const find = id => songs.find(s => s.id === id);
   if (b.dataset.play) present(find(b.dataset.play));
+  if (b.dataset.chords) openChords(find(b.dataset.chords));
   if (b.dataset.edit) openEditor(find(b.dataset.edit));
   if (b.dataset.del) {
     if (!b.dataset.armed) {
@@ -124,7 +126,7 @@ $('#importFile').onchange = async e => {
     let added = 0;
     for (const s of list) {
       if (!s?.title || !Array.isArray(s.sections) || have.has(s.title + '|' + s.lang)) continue;
-      await saveSong({ id: uuid(), title: String(s.title), artist: String(s.artist || ''), lang: s.lang === 'ar' ? 'ar' : 'en', sections: s.sections });
+      await saveSong({ id: uuid(), title: String(s.title), artist: String(s.artist || ''), lang: s.lang === 'ar' ? 'ar' : 'en', sections: s.sections, chords: String(s.chords || '') });
       added++;
     }
     $('#syncNote').textContent = `Imported ${added} song${added === 1 ? '' : 's'}. Songs with the same title were skipped.`;
@@ -152,6 +154,8 @@ function openEditor(s) {
   $('#fRaw').value = s ? s.sections.map(x => `[${x.label}]\n` + x.lines.map(l => l.main).join('\n')).join('\n\n') : '';
   $('#fSub').value = join('sub');
   $('#fTr').value = join('tr');
+  $('#fChords').value = s?.chords || '';
+  $('#chordsBox').open = !!s?.chords;
   $('#status').textContent = '';
   sel = 0;
   setLang(s?.lang || 'en');
@@ -304,7 +308,7 @@ $('#secs').addEventListener('change', e => { if (e.target.dataset.k === 'mood') 
 
 function currentSong() {
   if (!draft) draft = build().secs;
-  return { id: editing?.id || uuid(), title: $('#fTitle').value.trim() || 'Untitled song', artist: $('#fArtist').value.trim(), lang, sections: draft };
+  return { id: editing?.id || uuid(), title: $('#fTitle').value.trim() || 'Untitled song', artist: $('#fArtist').value.trim(), lang, sections: draft, chords: $('#fChords').value };
 }
 $('#previewBtn').onclick = () => { const s = currentSong(); if (s.sections.length) present(s); else $('#status').textContent = 'Add some lyrics first.'; };
 $('#saveBtn').onclick = async () => {
@@ -313,6 +317,82 @@ $('#saveBtn').onclick = async () => {
   try { await saveSong(s); $('#sheet').classList.remove('on'); }
   catch { $('#status').innerHTML = '<span class="err">Could not save. Make sure you are logged in as an editor.</span>'; }
 };
+
+/* ================= chords view ================= */
+const SHARP = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
+const FLAT = ['C', 'Db', 'D', 'Eb', 'E', 'F', 'Gb', 'G', 'Ab', 'A', 'Bb', 'B'];
+const CHORD = /^\(?[A-G][#b]?(?:maj|min|m|M|sus|dim|aug|add|\+|°|ø)?\d*(?:(?:sus|add|maj|b|#)\d+)*(?:\/[A-G][#b]?)?\)?$/;
+const FILLER = /^(\||\/|-|x\d|\(x\d\)|N\.?C\.?)$/i;
+const HEAD = /^\s*\[?\s*((?:verse|chorus|pre-?chorus|bridge|intro|outro|tag|ending|interlude|instrumental|refrain|turnaround|كورال|قرار|مقطع|عدد|ردة)[^\]:]*)\]?\s*:?\s*$/i;
+let chordSong = null, shift = 0, cfs = 17;
+try { cfs = +localStorage.getItem('singalong-cfs') || 17; } catch {}
+
+function tNote(n, st, flat) {
+  let i = SHARP.indexOf(n); if (i < 0) i = FLAT.indexOf(n); if (i < 0) return n;
+  return (flat ? FLAT : SHARP)[(i + st + 120) % 12];
+}
+function tChord(c, st) {
+  if (!st) return c;
+  const flat = /^\(?[A-G]b/.test(c) || (st < 0 && !/#/.test(c));
+  return c.replace(/^(\(?)([A-G][#b]?)/, (_, p, n) => p + tNote(n, st, flat)).replace(/\/([A-G][#b]?)/, (_, n) => '/' + tNote(n, st, flat));
+}
+const isChordLine = line => { const t = line.trim().split(/\s+/).filter(x => x && !FILLER.test(x)); return t.length > 0 && t.every(x => CHORD.test(x)); };
+const chordSpan = c => `<span class="ch">${esc(c)}</span>`;
+function chordLineHtml(line) {
+  // transpose each chord, keep the spacing so chords stay over the right words
+  let out = '', pad = 0;
+  line.split(/(\s+)/).forEach(tok => {
+    if (!tok) return;
+    if (/^\s+$/.test(tok)) { const n = Math.max(1, tok.length - pad); out += ' '.repeat(n); pad = 0; return; }
+    if (CHORD.test(tok)) { const t = tChord(tok, shift); pad = Math.max(0, t.length - tok.length); out += chordSpan(t); }
+    else out += esc(tok);
+  });
+  return out;
+}
+function inlineToTwoLines(line) {
+  // "[G]Amazing [C]grace" -> chords line above lyric line
+  let chords = '', lyric = '';
+  line.split(/(\[[^\]]+\])/).forEach(part => {
+    const m = part.match(/^\[([^\]]+)\]$/);
+    if (m && CHORD.test(m[1].trim())) {
+      const c = tChord(m[1].trim(), shift);
+      if (chords.length > lyric.length) lyric += ' '.repeat(chords.length - lyric.length + 1);
+      chords += ' '.repeat(Math.max(0, lyric.length - chords.length)) + '\u0000' + c + '\u0001';
+    } else lyric += part;
+  });
+  const html = esc(chords).replace(/\u0000(.*?)\u0001/g, (_, c) => chordSpan(c));
+  return `<span class="cl">${html}</span><span class="cl">${esc(lyric) || ' '}</span>`;
+}
+function renderChart() {
+  const blocks = [[]];
+  for (const raw of (chordSong.chords || '').replace(/\t/g, '    ').split(/\r?\n/)) {
+    const line = raw.replace(/\s+$/, '');
+    const head = line.match(HEAD) || (/^\s*\[[^\]]+\]\s*$/.test(line) && !CHORD.test(line.trim().slice(1, -1)) ? [0, line.trim().slice(1, -1)] : null);
+    if (head) { blocks.push([`<h3 dir="auto">${esc(head[1].trim())}</h3>`]); continue; }
+    const cur = blocks[blocks.length - 1];
+    if (!line.trim()) { if (cur.length) blocks.push([]); continue; }
+    if (/\[[A-G][^\]]*\]/.test(line) && line.match(/\[([^\]]+)\]/g).some(x => CHORD.test(x.slice(1, -1).trim()))) cur.push(inlineToTwoLines(line));
+    else if (isChordLine(line)) cur.push(`<span class="cl">${chordLineHtml(line)}</span>`);
+    else cur.push(`<span class="cl" dir="auto">${esc(line)}</span>`);
+  }
+  $('#chart').innerHTML = blocks.filter(b => b.length).map(b => `<div class="blk">${b.join('')}</div>`).join('');
+  $('#chart').style.setProperty('--cfs', cfs + 'px');
+  $('#cKey').textContent = shift ? `Transposed ${shift > 0 ? '+' : ''}${shift}` : 'Original key';
+}
+function openChords(s) {
+  if (!s) return;
+  chordSong = s; shift = 0;
+  $('#cTitle').textContent = s.title;
+  renderChart();
+  $('#chordView').classList.add('on');
+  $('#chordView').scrollTop = 0;
+}
+$('#tUp').onclick = () => { shift = shift + 1 > 11 ? 0 : shift + 1; renderChart(); };
+$('#tDown').onclick = () => { shift = shift - 1 < -11 ? 0 : shift - 1; renderChart(); };
+const setFs = d => { cfs = Math.max(12, Math.min(32, cfs + d)); try { localStorage.setItem('singalong-cfs', cfs); } catch {} renderChart(); };
+$('#fsUp').onclick = () => setFs(2);
+$('#fsDown').onclick = () => setFs(-2);
+$('#cClose').onclick = () => $('#chordView').classList.remove('on');
 
 /* ================= presenter ================= */
 let slides = [], idx = 0, idleT;
@@ -373,6 +453,7 @@ document.addEventListener('keydown', e => {
   if (e.key === 'Escape') {
     if ($('#loginSheet').classList.contains('on')) return $('#loginSheet').classList.remove('on');
     if ($('#sheet').classList.contains('on')) return $('#sheet').classList.remove('on');
+    if ($('#chordView').classList.contains('on')) return $('#chordView').classList.remove('on');
   }
   if (!$('#stage').classList.contains('on')) return;
   if (['ArrowRight', 'PageDown', ' '].includes(e.key)) { e.preventDefault(); go(1); }
