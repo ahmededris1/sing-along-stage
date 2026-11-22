@@ -246,6 +246,21 @@ $('#buildBtn').onclick = () => {
 };
 
 let sel = 0;
+/* Fill translations into the parts as you paste or type, without rebuilding the parts. */
+let fillT;
+function fillFromBoxes() {
+  if (!draft?.length) return;
+  const subs = plainLines($('#fSub').value), trs = lang === 'ar' ? plainLines($('#fTr').value) : [];
+  let k = 0;
+  draft.forEach(sec => sec.lines.forEach(l => { if (subs.length) l.sub = subs[k] || ''; if (trs.length) l.tr = trs[k] || ''; k++; }));
+  renderDraft();
+  const msgs = [];
+  if (subs.length && subs.length !== k) msgs.push(`${lang === 'en' ? 'Arabic translation' : 'Pronunciation'} has ${subs.length} lines but the lyrics have ${k}.`);
+  if (trs.length && trs.length !== k) msgs.push(`English translation has ${trs.length} lines but the lyrics have ${k}.`);
+  $('#status').innerHTML = msgs.length ? `<span class="err">${esc(msgs.join(' '))}</span>` : (subs.length || trs.length ? 'Translations matched to the lyrics.' : '');
+}
+['#fSub', '#fTr'].forEach(id => $(id).addEventListener('input', () => { clearTimeout(fillT); fillT = setTimeout(fillFromBoxes, 300); }));
+
 function renderDraft() {
   $('#edgrid').hidden = !draft || !draft.length;
   if (!draft) { $('#secs').innerHTML = ''; return; }
