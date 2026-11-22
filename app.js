@@ -336,7 +336,8 @@ function tChord(c, st) {
   const flat = /^\(?[A-G]b/.test(c) || (st < 0 && !/#/.test(c));
   return c.replace(/^(\(?)([A-G][#b]?)/, (_, p, n) => p + tNote(n, st, flat)).replace(/\/([A-G][#b]?)/, (_, n) => '/' + tNote(n, st, flat));
 }
-const isChordLine = line => { const t = line.trim().split(/\s+/).filter(x => x && !FILLER.test(x)); return t.length > 0 && t.every(x => CHORD.test(x)); };
+// a chord line is mostly chords; notes like "(B7 2nd time)" are allowed
+const isChordLine = line => { const t = line.trim().split(/\s+/).filter(x => x && !FILLER.test(x)); const n = t.filter(x => CHORD.test(x)).length; return n > 0 && n / t.length >= 0.5 && !/[\u0600-\u06FF]/.test(line); };
 const chordSpan = c => `<span class="ch">${esc(c)}</span>`;
 function chordLineHtml(line) {
   // transpose each chord, keep the spacing so chords stay over the right words
@@ -373,7 +374,7 @@ function renderChart() {
     if (!line.trim()) { if (cur.length) blocks.push([]); continue; }
     if (/\[[A-G][^\]]*\]/.test(line) && line.match(/\[([^\]]+)\]/g).some(x => CHORD.test(x.slice(1, -1).trim()))) cur.push(inlineToTwoLines(line));
     else if (isChordLine(line)) cur.push(`<span class="cl">${chordLineHtml(line)}</span>`);
-    else cur.push(`<span class="cl" dir="auto">${esc(line)}</span>`);
+    else cur.push(`<span class="cl">${esc(line)}</span>`);
   }
   $('#chart').innerHTML = blocks.filter(b => b.length).map(b => `<div class="blk">${b.join('')}</div>`).join('');
   $('#chart').style.setProperty('--cfs', cfs + 'px');
