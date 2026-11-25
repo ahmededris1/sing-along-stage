@@ -23,12 +23,16 @@ let songs = [], canEdit = false, userEmail = '', editing = null, draft = null, l
 const LS = 'singalong-songs';
 const localLoad = () => { try { return JSON.parse(localStorage.getItem(LS) || '[]'); } catch { return []; } };
 const localSave = () => { try { localStorage.setItem(LS, JSON.stringify(songs)); } catch {} };
-const pick = s => ({ id: s.id, title: s.title, artist: s.artist || '', lang: s.lang, sections: s.sections, chords: s.chords || '' });
+const pick = s => ({ id: s.id, title: s.title, title_ar: s.title_ar || '', artist: s.artist || '', lang: s.lang, sections: s.sections, chords: s.chords || '' });
+const hasAr = s => s.lang === 'ar' || (s.sections || []).some(x => x.lines.some(l => /[\u0600-\u06FF]/.test(l.sub || '')));
+const hasEn = s => s.lang === 'en' || (s.sections || []).some(x => x.lines.some(l => l.tr));
+const tags = s => (hasEn(s) ? '<span class="tag">English</span>' : '') + (hasAr(s) ? '<span class="tag" lang="ar">عربي</span>' : '');
+const fullTitle = s => s.title + (s.title_ar ? ' · ' + s.title_ar : '');
 
 async function loadSongs() {
   if (!sb) { songs = localLoad(); render(); return; }
   $('#syncNote').textContent = 'Loading library…';
-  const { data, error } = await sb.from('songs').select('id,title,artist,lang,sections,chords').order('title');
+  const { data, error } = await sb.from('songs').select('*').order('title');
   if (error) { $('#syncNote').textContent = 'The library could not load. Check your connection and the Supabase settings.'; return; }
   $('#syncNote').textContent = '';
   songs = data; render();
@@ -84,10 +88,10 @@ $('#logoutBtn').onclick = async () => { await sb.auth.signOut(); await refreshAu
 const thumbBg = s => { const m = MOODS[s.sections?.[0]?.mood] || MOODS.calm; return `linear-gradient(135deg,${rgb(m[0])},${rgb(m[1])} 55%,${rgb(m[2])})`; };
 function render() {
   const q = $('#q').value.trim().toLowerCase();
-  const list = songs.filter(s => (s.title + ' ' + (s.artist || '')).toLowerCase().includes(q)).sort((a, b) => a.title.localeCompare(b.title));
+  const list = songs.filter(s => (s.title + ' ' + (s.title_ar || '') + ' ' + (s.artist || '')).toLowerCase().includes(q)).sort((a, b) => a.title.localeCompare(b.title));
   $('#grid').innerHTML = list.length ? list.map(s => `<article class="song">
-    <button class="thumb" style="background:${thumbBg(s)}" data-play="${esc(s.id)}" aria-label="Play ${esc(s.title)}"><b dir="auto">${esc(s.title)}</b><span class="play"></span></button>
-    <div class="meta"><span dir="auto">${esc(s.artist || 'Unknown artist')} · ${s.sections?.length || 0} parts</span><span class="tag">${s.lang === 'ar' ? 'Arabic' : 'English'}</span>
+    <button class="thumb" style="background:${thumbBg(s)}" data-play="${esc(s.id)}" aria-label="Play ${esc(s.title)}"><span class="tt"><b dir="auto">${esc(s.title)}</b>${s.title_ar ? `<b class="ar" dir="rtl" lang="ar">${esc(s.title_ar)}</b>` : ''}</span><span class="play"></span></button>
+    <div class="meta"><span dir="auto">${esc(s.artist || 'Unknown artist')} · ${s.sections?.length || 0} parts</span><span class="tags">${tags(s)}</span>
     ${s.chords?.trim() ? `<button data-chords="${esc(s.id)}" title="Lyrics with chords for the music team">Chords</button>` : ''}
     ${canEdit ? `<span class="bar"><button data-edit="${esc(s.id)}">Edit</button><button data-del="${esc(s.id)}">Delete</button></span>` : ''}</div></article>`).join('')
     : `<div class="empty">${songs.length ? 'No songs match your search.' : canEdit ? 'Your library is empty. Add your first song.' : 'No songs yet.'}</div>`;
@@ -122,14 +126,20 @@ $('#importFile').onchange = async e => {
   try {
     const list = JSON.parse(await file.text());
     if (!Array.isArray(list)) throw 0;
-    const have = new Set(songs.map(s => s.title + '|' + s.lang));
-    let added = 0;
-    for (const s of list) {
-      if (!s?.title || !Array.isArray(s.sections) || have.has(s.title + '|' + s.lang)) continue;
-      await saveSong({ id: uuid(), title: String(s.title), artist: String(s.artist || ''), lang: s.lang === 'ar' ? 'ar' : 'en', sections: s.sections, chords: String(s.chords || '') });
-      added++;
+    const key = t => String(t || '').trim().toLowerCase();
+    const byTitle = new Map(songs.map(s => [key(s.title), s]));
+    const valid = list.filter(s => s?.title && Array.isArray(s.sections));
+    const dupes = valid.filter(s => byTitle.has(key(s.title))).length;
+    const replace = dupes > 0 && confirm(`${dupes} of these songs are already in your library. Replace them with the versions in this file?\n\nOK = replace them. Cancel = skip them.`);
+    let added = 0, updated = 0;
+    $('#syncNote').textContent = 'Importing…';
+    for (const s of valid) {
+      const old = byTitle.get(key(s.title));
+      if (old && !replace) continue;
+      await saveSong({ id: old?.id || uuid(), title: String(s.title), title_ar: String(s.title_ar || old?.title_ar || ''), artist: String(s.artist || ''), lang: s.lang === 'ar' ? 'ar' : 'en', sections: s.sections, chords: String(s.chords || old?.chords || '') });
+      old ? updated++ : added++;
     }
-    $('#syncNote').textContent = `Imported ${added} song${added === 1 ? '' : 's'}. Songs with the same title were skipped.`;
+    $('#syncNote').textContent = `Added ${added} new song${added === 1 ? '' : 's'}` + (updated ? `, updated ${updated}.` : '.') + (dupes && !replace ? ` Skipped ${dupes} already in your library.` : '');
   } catch { $('#syncNote').textContent = 'That file could not be imported.'; }
 };
 
@@ -150,6 +160,7 @@ function openEditor(s) {
   $('#edTitle').textContent = s ? 'Edit song' : 'Add song';
   $('#fTitle').value = s?.title || '';
   $('#fArtist').value = s?.artist || '';
+  $('#fTitleAr').value = s?.title_ar || '';
   const join = k => s && s.sections.some(x => x.lines.some(l => l[k])) ? s.sections.map(x => x.lines.map(l => l[k] || '-').join('\n')).join('\n\n') : '';
   $('#fRaw').value = s ? s.sections.map(x => `[${x.label}]\n` + x.lines.map(l => l.main).join('\n')).join('\n\n') : '';
   $('#fSub').value = join('sub');
@@ -324,7 +335,7 @@ $('#secs').addEventListener('change', e => { if (e.target.dataset.k === 'mood') 
 
 function currentSong() {
   if (!draft) draft = build().secs;
-  return { id: editing?.id || uuid(), title: $('#fTitle').value.trim() || 'Untitled song', artist: $('#fArtist').value.trim(), lang, sections: draft, chords: $('#fChords').value };
+  return { id: editing?.id || uuid(), title: $('#fTitle').value.trim() || 'Untitled song', title_ar: $('#fTitleAr').value.trim(), artist: $('#fArtist').value.trim(), lang, sections: draft, chords: $('#fChords').value };
 }
 $('#previewBtn').onclick = () => { const s = currentSong(); if (s.sections.length) present(s); else $('#status').textContent = 'Add some lyrics first.'; };
 $('#saveBtn').onclick = async () => {
@@ -403,7 +414,7 @@ function renderChart() {
 function openChords(s) {
   if (!s) return;
   chordSong = s; shift = 0;
-  $('#cTitle').textContent = s.title;
+  $('#cTitle').textContent = fullTitle(s);
   renderChart();
   $('#chordView').classList.add('on');
   $('#chordView').scrollTop = 0;
@@ -443,7 +454,7 @@ function present(s) {
   if (!s) return;
   slides = s.sections.filter(x => x.lines.length); idx = 0;
   if (!slides.length) return;
-  $('#stTitle').textContent = s.title;
+  $('#stTitle').textContent = fullTitle(s);
   $('#stage').classList.add('on');
   show(0, true); poke(); startBg();
 }
