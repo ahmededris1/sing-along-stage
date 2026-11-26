@@ -49,7 +49,7 @@ function highlight(text, q) {  // wrap the match in <mark>, cut long lines aroun
 }
 function findIn(s, q) {        // first lyric line that matches, as {html, label}
   for (const sec of s.sections || []) for (const l of sec.lines) for (const k of ['main', 'sub', 'tr'])
-    if (l[k] && foldStr(l[k]).includes(q)) return { html: highlight(l[k], q), label: sec.label };
+    if (l[k] && foldStr(l[k]).includes(q)) return { html: highlight(l[k], q), label: sec.label, sec };
   if (s.chords && foldStr(s.chords).includes(q)) { const line = s.chords.split('\n').find(x => foldStr(x).includes(q)); return { html: highlight(line, q), label: 'Chords' }; }
   return null;
 }
@@ -135,7 +135,50 @@ function render() {
     ${canEdit ? `<span class="bar"><button data-edit="${esc(s.id)}">Edit</button><button data-del="${esc(s.id)}">Delete</button></span>` : ''}</div></article>`).join('')
     : `<div class="empty">${songs.length ? ($('#q').value.trim() ? 'No songs match your search.' : 'No songs with this tag yet.') : canEdit ? 'Your library is empty. Add your first song.' : 'No songs yet.'}</div>`;
 }
-$('#q').addEventListener('input', render);
+/* ---- search results dropdown ---- */
+let hits = [], active = -1;
+function renderResults() {
+  const q = foldStr($('#q').value.trim()), box = $('#results');
+  if (!q) { box.hidden = true; hits = []; return; }
+  hits = [];
+  for (const s of songs) {
+    if (filter !== 'all' && originOf(s) !== filter) continue;
+    const t = s.title + (s.title_ar ? ' · ' + s.title_ar : '');
+    if (foldStr(t + ' ' + (s.artist || '')).includes(q)) {
+      const first = s.sections?.[0]?.lines?.[0];
+      hits.push({ s, rank: 0, title: highlight(t, q), line: esc(first ? (first.main || first.sub) : ''), label: '' });
+      continue;
+    }
+    const h = findIn(s, q);
+    if (h) hits.push({ s, rank: 1, title: esc(t), line: h.html, label: h.label, sec: h.sec });
+  }
+  hits.sort((a, b) => a.rank - b.rank || a.s.title.localeCompare(b.s.title));
+  active = hits.length ? 0 : -1;
+  box.innerHTML = hits.length
+    ? hits.slice(0, 40).map((h, i) => `<button class="res${i === active ? ' on' : ''}" data-i="${i}" role="option">
+        <b dir="auto">${h.title}</b><span dir="auto">${h.label ? `<small>${esc(h.label)}</small> ` : ''}${h.line}</span></button>`).join('')
+    : '<p class="res-none">No songs or lyrics match.</p>';
+  box.hidden = false;
+}
+function openHit(i) { const h = hits[i]; if (!h) return; $('#results').hidden = true; present(h.s, h.sec); }
+function moveActive(d) {
+  if (!hits.length) return;
+  active = (active + d + Math.min(hits.length, 40)) % Math.min(hits.length, 40);
+  document.querySelectorAll('#results .res').forEach((b, i) => b.classList.toggle('on', i === active));
+  document.querySelector('#results .res.on')?.scrollIntoView({ block: 'nearest' });
+}
+$('#results').addEventListener('mousedown', e => e.preventDefault());   // keep focus in the box
+$('#results').addEventListener('click', e => { const b = e.target.closest('.res'); if (b) openHit(+b.dataset.i); });
+$('#q').addEventListener('keydown', e => {
+  if ($('#results').hidden) return;
+  if (e.key === 'ArrowDown') { e.preventDefault(); moveActive(1); }
+  else if (e.key === 'ArrowUp') { e.preventDefault(); moveActive(-1); }
+  else if (e.key === 'Enter') { e.preventDefault(); openHit(active); }
+  else if (e.key === 'Escape') { e.stopPropagation(); $('#results').hidden = true; }
+});
+$('#q').addEventListener('focus', renderResults);
+$('#q').addEventListener('blur', () => setTimeout(() => { $('#results').hidden = true; }, 120));
+$('#q').addEventListener('input', () => { render(); renderResults(); });
 $('#filters').addEventListener('click', e => { const b = e.target.closest('button[data-f]'); if (b) { filter = b.dataset.f; render(); } });
 $('#grid').addEventListener('click', async e => {
   const b = e.target.closest('button'); if (!b) return;
@@ -494,13 +537,13 @@ window.addEventListener('resize', () => {
   if ($('#stage').classList.contains('on')) fit($('#words'));
   if ($('#sheet').classList.contains('on')) fit($('#miniWords'));
 });
-function present(s) {
+function present(s, startSec) {
   if (!s) return;
   slides = s.sections.filter(x => x.lines.length); idx = 0;
   if (!slides.length) return;
   $('#stTitle').textContent = fullTitle(s);
   $('#stage').classList.add('on');
-  show(0, true); poke(); startBg();
+  show(Math.max(0, slides.indexOf(startSec)), true); poke(); startBg();
 }
 function show(i, instant) {
   idx = Math.max(0, Math.min(slides.length - 1, i));
