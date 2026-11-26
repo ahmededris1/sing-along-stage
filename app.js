@@ -23,10 +23,37 @@ let songs = [], canEdit = false, userEmail = '', editing = null, draft = null, l
 const LS = 'singalong-songs';
 const localLoad = () => { try { return JSON.parse(localStorage.getItem(LS) || '[]'); } catch { return []; } };
 const localSave = () => { try { localStorage.setItem(LS, JSON.stringify(songs)); } catch {} };
-const pick = s => ({ id: s.id, title: s.title, title_ar: s.title_ar || '', artist: s.artist || '', lang: s.lang, sections: s.sections, chords: s.chords || '' });
+const pick = s => ({ id: s.id, title: s.title, title_ar: s.title_ar || '', origin: s.origin || '', artist: s.artist || '', lang: s.lang, sections: s.sections, chords: s.chords || '' });
 const hasAr = s => s.lang === 'ar' || (s.sections || []).some(x => x.lines.some(l => /[\u0600-\u06FF]/.test(l.sub || '')));
 const hasEn = s => s.lang === 'en' || (s.sections || []).some(x => x.lines.some(l => l.tr));
-const tags = s => (hasEn(s) ? '<span class="tag">English</span>' : '') + (hasAr(s) ? '<span class="tag" lang="ar">عربي</span>' : '');
+const originOf = s => ['en', 'ar', 'both'].includes(s.origin) ? s.origin : (hasEn(s) && hasAr(s) ? 'both' : s.lang);
+const ORIGIN = { en: 'Original English', ar: 'Original Arabic · عربي', both: 'English & Arabic · عربي' };
+const tags = s => `<span class="tag tag-${originOf(s)}">${ORIGIN[originOf(s)]}</span>`;
+
+/* ---- search: titles, artist and every lyric line, Arabic-friendly ---- */
+const AR_MARKS = /[\u064B-\u065F\u0670\u06D6-\u06ED\u0640]/;   // vowel marks and tatweel
+const foldChar = c => ({ 'أ': 'ا', 'إ': 'ا', 'آ': 'ا', 'ٱ': 'ا', 'ة': 'ه', 'ى': 'ي', 'ؤ': 'و', 'ئ': 'ي', '’': "'", '‘': "'" }[c] || c).toLowerCase();
+function fold(str) {           // returns folded text plus a map from folded index to original index
+  let out = '', map = [];
+  for (let i = 0; i < str.length; i++) { if (AR_MARKS.test(str[i])) continue; out += foldChar(str[i]); map.push(i); }
+  return { out, map };
+}
+const foldStr = str => fold(String(str || '')).out;
+function highlight(text, q) {  // wrap the match in <mark>, cut long lines around it
+  const { out, map } = fold(text), at = out.indexOf(q);
+  if (at < 0) return esc(text);
+  const a = map[at]; let b = map[at + q.length - 1] + 1;
+  while (b < text.length && AR_MARKS.test(text[b])) b++;   // keep trailing vowel marks inside the highlight
+  let from = Math.max(0, a - 40), to = Math.min(text.length, b + 40);
+  return (from ? '…' : '') + esc(text.slice(from, a)) + '<mark>' + esc(text.slice(a, b)) + '</mark>' + esc(text.slice(b, to)) + (to < text.length ? '…' : '');
+}
+function findIn(s, q) {        // first lyric line that matches, as {html, label}
+  for (const sec of s.sections || []) for (const l of sec.lines) for (const k of ['main', 'sub', 'tr'])
+    if (l[k] && foldStr(l[k]).includes(q)) return { html: highlight(l[k], q), label: sec.label };
+  if (s.chords && foldStr(s.chords).includes(q)) { const line = s.chords.split('\n').find(x => foldStr(x).includes(q)); return { html: highlight(line, q), label: 'Chords' }; }
+  return null;
+}
+let filter = 'all';
 const fullTitle = s => s.title + (s.title_ar ? ' · ' + s.title_ar : '');
 
 async function loadSongs() {
@@ -87,16 +114,29 @@ $('#logoutBtn').onclick = async () => { await sb.auth.signOut(); await refreshAu
 /* ================= library ================= */
 const thumbBg = s => { const m = MOODS[s.sections?.[0]?.mood] || MOODS.calm; return `linear-gradient(135deg,${rgb(m[0])},${rgb(m[1])} 55%,${rgb(m[2])})`; };
 function render() {
-  const q = $('#q').value.trim().toLowerCase();
-  const list = songs.filter(s => (s.title + ' ' + (s.title_ar || '') + ' ' + (s.artist || '')).toLowerCase().includes(q)).sort((a, b) => a.title.localeCompare(b.title));
-  $('#grid').innerHTML = list.length ? list.map(s => `<article class="song">
+  const q = foldStr($('#q').value.trim());
+  document.querySelectorAll('#filters button').forEach(b => b.setAttribute('aria-pressed', b.dataset.f === filter));
+  const list = songs
+    .filter(s => filter === 'all' || originOf(s) === filter)
+    .map(s => {
+      if (!q) return { s };
+      const inTitle = foldStr(s.title + ' ' + (s.title_ar || '') + ' ' + (s.artist || '')).includes(q);
+      const hit = inTitle ? null : findIn(s, q);
+      return inTitle || hit ? { s, hit, rank: inTitle ? 0 : 1 } : null;
+    })
+    .filter(Boolean)
+    .sort((x, y) => (x.rank || 0) - (y.rank || 0) || x.s.title.localeCompare(y.s.title));
+  $('#count').textContent = q || filter !== 'all' ? `${list.length} of ${songs.length} songs` : '';
+  $('#grid').innerHTML = list.length ? list.map(({ s, hit }) => `<article class="song">
     <button class="thumb" style="background:${thumbBg(s)}" data-play="${esc(s.id)}" aria-label="Play ${esc(s.title)}"><span class="tt"><b dir="auto">${esc(s.title)}</b>${s.title_ar ? `<b class="ar" dir="rtl" lang="ar">${esc(s.title_ar)}</b>` : ''}</span><span class="play"></span></button>
     <div class="meta"><span dir="auto">${esc(s.artist || 'Unknown artist')} · ${s.sections?.length || 0} parts</span><span class="tags">${tags(s)}</span>
+    ${hit ? `<p class="hit" dir="auto"><small>${esc(hit.label)}</small>${hit.html}</p>` : ''}
     ${s.chords?.trim() ? `<button data-chords="${esc(s.id)}" title="Lyrics with chords for the music team">Chords</button>` : ''}
     ${canEdit ? `<span class="bar"><button data-edit="${esc(s.id)}">Edit</button><button data-del="${esc(s.id)}">Delete</button></span>` : ''}</div></article>`).join('')
-    : `<div class="empty">${songs.length ? 'No songs match your search.' : canEdit ? 'Your library is empty. Add your first song.' : 'No songs yet.'}</div>`;
+    : `<div class="empty">${songs.length ? ($('#q').value.trim() ? 'No songs match your search.' : 'No songs with this tag yet.') : canEdit ? 'Your library is empty. Add your first song.' : 'No songs yet.'}</div>`;
 }
 $('#q').addEventListener('input', render);
+$('#filters').addEventListener('click', e => { const b = e.target.closest('button[data-f]'); if (b) { filter = b.dataset.f; render(); } });
 $('#grid').addEventListener('click', async e => {
   const b = e.target.closest('button'); if (!b) return;
   const find = id => songs.find(s => s.id === id);
@@ -136,7 +176,7 @@ $('#importFile').onchange = async e => {
     for (const s of valid) {
       const old = byTitle.get(key(s.title));
       if (old && !replace) continue;
-      await saveSong({ id: old?.id || uuid(), title: String(s.title), title_ar: String(s.title_ar || old?.title_ar || ''), artist: String(s.artist || ''), lang: s.lang === 'ar' ? 'ar' : 'en', sections: s.sections, chords: String(s.chords || old?.chords || '') });
+      await saveSong({ id: old?.id || uuid(), title: String(s.title), title_ar: String(s.title_ar || old?.title_ar || ''), origin: String(s.origin || old?.origin || ''), artist: String(s.artist || ''), lang: s.lang === 'ar' ? 'ar' : 'en', sections: s.sections, chords: String(s.chords || old?.chords || '') });
       old ? updated++ : added++;
     }
     $('#syncNote').textContent = `Added ${added} new song${added === 1 ? '' : 's'}` + (updated ? `, updated ${updated}.` : '.') + (dupes && !replace ? ` Skipped ${dupes} already in your library.` : '');
@@ -146,13 +186,16 @@ $('#importFile').onchange = async e => {
 /* ================= editor ================= */
 function setLang(l) {
   lang = l;
-  document.querySelectorAll('.seg button').forEach(b => b.setAttribute('aria-pressed', b.dataset.lang === l));
+  document.querySelectorAll('.seg button[data-lang]').forEach(b => b.setAttribute('aria-pressed', b.dataset.lang === l));
   $('#subLbl').textContent = l === 'en' ? 'Arabic translation' : 'Pronunciation in English letters';
   $('#fSub').placeholder = l === 'en' ? 'One line for each lyric line' : 'e.g. inta noori fid-dalma';
   $('#trCol').hidden = l !== 'ar';
   if (draft) renderDraft();
 }
-document.querySelectorAll('.seg button').forEach(b => b.onclick = () => setLang(b.dataset.lang));
+document.querySelectorAll('.seg button[data-lang]').forEach(b => b.onclick = () => setLang(b.dataset.lang));
+let origin = 'en';
+function setOrigin(o) { origin = o; document.querySelectorAll('.seg button[data-origin]').forEach(b => b.setAttribute('aria-pressed', b.dataset.origin === o)); }
+document.querySelectorAll('.seg button[data-origin]').forEach(b => b.onclick = () => setOrigin(b.dataset.origin));
 
 function openEditor(s) {
   editing = s || null;
@@ -161,6 +204,7 @@ function openEditor(s) {
   $('#fTitle').value = s?.title || '';
   $('#fArtist').value = s?.artist || '';
   $('#fTitleAr').value = s?.title_ar || '';
+  setOrigin(s ? originOf(s) : 'en');
   const join = k => s && s.sections.some(x => x.lines.some(l => l[k])) ? s.sections.map(x => x.lines.map(l => l[k] || '-').join('\n')).join('\n\n') : '';
   $('#fRaw').value = s ? s.sections.map(x => `[${x.label}]\n` + x.lines.map(l => l.main).join('\n')).join('\n\n') : '';
   $('#fSub').value = join('sub');
@@ -335,7 +379,7 @@ $('#secs').addEventListener('change', e => { if (e.target.dataset.k === 'mood') 
 
 function currentSong() {
   if (!draft) draft = build().secs;
-  return { id: editing?.id || uuid(), title: $('#fTitle').value.trim() || 'Untitled song', title_ar: $('#fTitleAr').value.trim(), artist: $('#fArtist').value.trim(), lang, sections: draft, chords: $('#fChords').value };
+  return { id: editing?.id || uuid(), title: $('#fTitle').value.trim() || 'Untitled song', title_ar: $('#fTitleAr').value.trim(), origin, artist: $('#fArtist').value.trim(), lang, sections: draft, chords: $('#fChords').value };
 }
 $('#previewBtn').onclick = () => { const s = currentSong(); if (s.sections.length) present(s); else $('#status').textContent = 'Add some lyrics first.'; };
 $('#saveBtn').onclick = async () => {

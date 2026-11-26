@@ -35,6 +35,13 @@ h2{font-size:24px;margin:0 0 12px}
 .thumb .tt{display:flex;flex-direction:column;align-items:flex-start;gap:2px;padding-inline-end:52px}
 .thumb .tt .ar{font-size:17px;font-weight:500;opacity:.92}
 .tags{display:flex;gap:6px}
+.filters{margin-top:12px}
+.filters button{min-height:38px;border-radius:99px;font-size:14px;padding:0 14px}
+.filters button[aria-pressed=true]{background:var(--ink);color:var(--bg);border-color:var(--ink)}
+.tag-ar{border-color:#2f9e6e}.tag-both{border-color:var(--acc)}
+.hit{flex-basis:100%;margin:2px 0 0;font-size:14px;line-height:1.5;color:var(--ink);background:light-dark(#faf7f2,#221e23);border-radius:10px;padding:8px 10px}
+.hit small{display:block;color:var(--mute);font-size:12px}
+.hit mark{background:#ffd9cc;color:#7a1f0a;border-radius:3px;padding:0 2px}
 .thumb .play{position:absolute;top:12px;inset-inline-end:12px;width:44px;height:44px;border-radius:50%;background:#fff;display:grid;place-items:center}
 .thumb .play::after{content:"";border-left:13px solid #1b181c;border-top:8px solid transparent;border-bottom:8px solid transparent;margin-left:3px}
 .meta{padding:12px 14px;display:flex;gap:8px;align-items:center;justify-content:space-between;flex-wrap:wrap}
@@ -128,7 +135,11 @@ details.chordsBox textarea{font-family:ui-monospace,Menlo,Consolas,monospace;fon
 </header>
 <main class="band" style="padding-top:8px">
   <div class="banner" id="demoBanner" hidden>Demo mode: songs are saved in this browser only. Add your Supabase details to <code>config.js</code> to turn on logins and the shared library.</div>
-  <div class="bar"><input id="q" type="search" placeholder="Search songs or artists" aria-label="Search songs"></div>
+  <div class="bar"><input id="q" type="search" placeholder="Search titles or lyrics, English or عربي" aria-label="Search songs and lyrics"></div>
+  <div class="bar filters" id="filters" role="group" aria-label="Filter by original language">
+    <button data-f="all" aria-pressed="true">All</button><button data-f="en">Original English</button><button data-f="ar">Original Arabic</button><button data-f="both">Both</button>
+    <span class="note" id="count"></span>
+  </div>
   <p class="note" id="syncNote"></p>
   <div class="grid" id="grid"></div>
 </main>
@@ -153,7 +164,9 @@ details.chordsBox textarea{font-family:ui-monospace,Menlo,Consolas,monospace;fon
       <div><label for="fTitleAr">Arabic title (optional)</label><input id="fTitleAr" dir="rtl" lang="ar"></div>
       <div><label for="fArtist">Artist (optional)</label><input id="fArtist"></div>
     </div>
-    <label>Song language</label>
+    <label>Original language</label>
+    <div class="seg" role="group" aria-label="Original language" style="margin-bottom:12px"><button data-origin="en" aria-pressed="true">English</button><button data-origin="ar" aria-pressed="false">Arabic</button><button data-origin="both" aria-pressed="false">Both</button></div>
+    <label>Lyrics shown first</label>
     <div class="seg" role="group" aria-label="Song language"><button data-lang="en" aria-pressed="true">English song</button><button data-lang="ar" aria-pressed="false">Arabic song</button></div>
     <p class="note">Paste the lyrics as you found them. Keep the empty lines between groups. Then paste each translation in the same order, one line for each lyric line. Lines are matched by order, and part names and empty lines are skipped.</p>
     <div class="cols">
@@ -203,6 +216,6 @@ details.chordsBox textarea{font-family:ui-monospace,Menlo,Consolas,monospace;fon
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <script src="config.js?v=3"></script>
-<script src="app.js?v=6"></script>
+<script src="app.js?v=7"></script>
 </body>
 </html>
